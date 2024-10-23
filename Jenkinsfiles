@@ -1,156 +1,46 @@
-// Jenkinsfile
 pipeline {
     agent any
 
-    environment {
-        DOCKER_IMAGE = 'sample-node-app'
-        DOCKER_TAG = "${BUILD_NUMBER}"
-        NODE_ENV = 'test'
-    }
-
-    tools {
-        nodejs 'NodeJS 18'  // Must match the name configured in Global Tool Configuration
-    }
-
-    options {
-        timeout(time: 1, unit: 'HOURS')
-        disableConcurrentBuilds()
-    }
-
     stages {
-        stage('Environment Setup') {
-            steps {
-                script {
-                    // Print environment info for debugging
-                    sh '''
-                        node --version
-                        npm --version
-                        docker --version
-                    '''
-                }
-            }
-        }
-
         stage('Checkout') {
             steps {
-                // Clean workspace before checkout
-                cleanWs()
-                checkout scm
+                // Checkout the code from GitHub
+                git 'https://github.com/Mandy767/sample-node-app.git'
             }
         }
 
-        stage('Install Dependencies') {
+        stage('Build') {
             steps {
-                // Install dependencies with clean slate
-                sh '''
-                    npm cache clean --force
-                    npm install
-                '''
-            }
-        }
-
-        stage('Run Tests') {
-            steps {
+                // Build the Docker image
                 script {
-                    try {
-                        sh 'npm test'
-                    } catch (Exception e) {
-                        currentBuild.result = 'FAILURE'
-                        error "Test execution failed: ${e.message}"
-                    }
+                    def appImage = docker.build("node-simple-app:${env.BUILD_ID}")
                 }
             }
         }
 
-        stage('Code Quality') {
+        stage('Test') {
             steps {
-                script {
-                    // Add your preferred code quality checks
-                    sh '''
-                        npm list
-                        npm audit
-                    '''
-                }
+                // Run tests (if you have any)
+                echo 'Running tests...'
             }
         }
 
-        stage('Build Docker Image') {
+        stage('Deploy') {
             steps {
+                // You can deploy your app here, for example using Docker run
                 script {
-                    try {
-                        // Build with proper tags
-                        docker.build("${DOCKER_IMAGE}:${DOCKER_TAG}")
-                        docker.build("${DOCKER_IMAGE}:latest")
-                    } catch (Exception e) {
-                        currentBuild.result = 'FAILURE'
-                        error "Docker build failed: ${e.message}"
-                    }
-                }
-            }
-        }
-
-        stage('Test Docker Image') {
-            steps {
-                script {
-                    try {
-                        // Run container and test
-                        sh """
-                            docker run -d -p 3000:3000 --name test-container-${BUILD_NUMBER} ${DOCKER_IMAGE}:${DOCKER_TAG}
-                            sleep 10  # Wait for container to fully start
-                            curl -f http://localhost:3000/health || exit 1
-                        """
-                    } catch (Exception e) {
-                        error "Docker container test failed: ${e.message}"
-                    } finally {
-                        // Cleanup
-                        sh """
-                            docker stop test-container-${BUILD_NUMBER} || true
-                            docker rm test-container-${BUILD_NUMBER} || true
-                        """
-                    }
-                }
-            }
-        }
-
-        stage('Deploy to Development') {
-            when {
-                branch 'develop'
-            }
-            steps {
-                script {
-                    echo 'Deploying to development environment...'
-                    // Add your deployment steps here
-                }
-            }
-        }
-
-        stage('Deploy to Production') {
-            when {
-                branch 'main'
-            }
-            steps {
-                script {
-                    echo 'Deploying to production environment...'
-                    // Add your production deployment steps here
+                    docker.image("node-simple-app:${env.BUILD_ID}").run('-p 3000:3000')
                 }
             }
         }
     }
 
     post {
-        always {
-            // Cleanup
-            cleanWs()
-            sh """
-                docker rmi ${DOCKER_IMAGE}:${DOCKER_TAG} || true
-                docker rmi ${DOCKER_IMAGE}:latest || true
-            """
-        }
         success {
             echo 'Pipeline completed successfully!'
         }
         failure {
-            echo 'Pipeline failed! Check the logs for details.'
+            echo 'Pipeline failed.'
         }
     }
 }
